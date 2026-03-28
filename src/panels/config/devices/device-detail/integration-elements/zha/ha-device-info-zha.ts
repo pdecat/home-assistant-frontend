@@ -17,19 +17,51 @@ export class HaDeviceInfoZha extends LitElement {
 
   @state() private _zhaDevice?: ZHADevice;
 
+  @state() private _lastFetch = 0;
+
+  @state() private _expanded =
+    localStorage.getItem("zha-device-info-expanded") === "true";
+
   protected updated(changedProperties: PropertyValues<this>) {
     super.updated(changedProperties);
     if (changedProperties.has("device")) {
-      const zigbeeConnection = this.device.connections.find(
-        (conn) => conn[0] === "zigbee"
-      );
-      if (!zigbeeConnection) {
-        return;
-      }
-      fetchZHADevice(this.hass, zigbeeConnection[1]).then((device) => {
-        this._zhaDevice = device;
-      });
+      this._fetchDevice();
+      return;
     }
+
+    if (changedProperties.has("hass") && this.device) {
+      this._checkEntityUpdates();
+    }
+  }
+
+  private _checkEntityUpdates() {
+    const entities = Object.values(this.hass.entities).filter(
+      (ent) => ent.device_id === this.device.id
+    );
+
+    for (const ent of entities) {
+      const stateObj = this.hass.states[ent.entity_id];
+      if (stateObj) {
+        const lastUpdated = new Date(stateObj.last_updated).getTime();
+        if (lastUpdated > this._lastFetch) {
+          this._fetchDevice();
+          return;
+        }
+      }
+    }
+  }
+
+  private _fetchDevice() {
+    const zigbeeConnection = this.device.connections.find(
+      (conn) => conn[0] === "zigbee"
+    );
+    if (!zigbeeConnection) {
+      return;
+    }
+    fetchZHADevice(this.hass, zigbeeConnection[1]).then((device) => {
+      this._zhaDevice = device;
+      this._lastFetch = Date.now();
+    });
   }
 
   protected render() {
@@ -37,7 +69,11 @@ export class HaDeviceInfoZha extends LitElement {
       return nothing;
     }
     return html`
-      <ha-expansion-panel header="Zigbee info">
+      <ha-expansion-panel
+        header="Zigbee info"
+        .expanded=${this._expanded}
+        @expanded-changed=${this._handleExpandedChanged}
+      >
         <div>Nwk: ${formatAsPaddedHex(this._zhaDevice.nwk)}</div>
         <div>Device Type: ${this._zhaDevice.device_type}</div>
         <div>
@@ -80,6 +116,11 @@ export class HaDeviceInfoZha extends LitElement {
         }
       </ha-expansion-panel>
     `;
+  }
+
+  private _handleExpandedChanged(ev: CustomEvent) {
+    this._expanded = ev.detail.expanded;
+    localStorage.setItem("zha-device-info-expanded", String(this._expanded));
   }
 
   static get styles(): CSSResultGroup {

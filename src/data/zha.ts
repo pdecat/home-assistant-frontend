@@ -468,6 +468,15 @@ export const changeZHANetworkChannel = (
     new_channel: newChannel,
   });
 
+export const readEntityAttribute = (
+  hass: HomeAssistant,
+  entityId: string
+): Promise<void> =>
+  hass.callWS({
+    type: "zha/entity/read",
+    entity_id: entityId,
+  });
+
 export const INITIALIZED = "INITIALIZED";
 export const INTERVIEW_COMPLETE = "INTERVIEW_COMPLETE";
 export const CONFIGURED = "CONFIGURED";

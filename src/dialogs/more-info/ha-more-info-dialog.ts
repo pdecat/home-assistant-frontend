@@ -1,7 +1,9 @@
 import "@home-assistant/webawesome/dist/components/divider/divider";
 import {
+  mdiAlertCircle,
   mdiBackupRestore,
   mdiChartBoxOutline,
+  mdiCheck,
   mdiClose,
   mdiCodeBraces,
   mdiCogOutline,
@@ -14,6 +16,7 @@ import {
   mdiPencilOff,
   mdiPencilOutline,
   mdiPlusBoxMultipleOutline,
+  mdiRefresh,
   mdiTransitConnectionVariant,
 } from "@mdi/js";
 import type { HassEntity } from "home-assistant-js-websocket";
@@ -60,6 +63,7 @@ import type { HaDropdownSelectEvent } from "../../components/ha-dropdown";
 import "../../components/ha-dropdown-item";
 import "../../components/ha-icon-button";
 import "../../components/ha-icon-button-prev";
+import "../../components/ha-spinner";
 import "./ha-more-info-related";
 import type {
   EntityRegistryEntry,
@@ -69,6 +73,7 @@ import {
   getExtendedEntityRegistryEntry,
   updateEntityRegistryEntry,
 } from "../../data/entity/entity_registry";
+import { readEntityAttribute } from "../../data/zha";
 import { DirtyStateProviderMixin } from "../../mixins/dirty-state-provider-mixin";
 import type { EntitySettingsState } from "../../panels/config/entities/entity-registry-settings-editor";
 import type { Helper } from "../../panels/config/helpers/const";
@@ -172,6 +177,8 @@ export class MoreInfoDialog extends DirtyStateProviderMixin<
   @state() private _detailsYamlMode = false;
 
   @state() private _isEscapeEnabled = true;
+
+  @state() private _refreshState?: "loading" | "success" | "error";
 
   protected scrollFadeThreshold = 24;
 
@@ -282,6 +289,23 @@ export class MoreInfoDialog extends DirtyStateProviderMixin<
       !!this.hass.user?.is_admin ||
       !!this.hass.auth.external?.config.hasEntityAddTo
     );
+  }
+
+  private _shouldShowRefresh(): boolean {
+    return this._entry?.platform === "zha";
+  }
+
+  private async _handleRefresh() {
+    this._refreshState = "loading";
+    try {
+      await readEntityAttribute(this.hass, this._entityId!);
+      this._refreshState = "success";
+    } catch (_err) {
+      this._refreshState = "error";
+    }
+    setTimeout(() => {
+      this._refreshState = undefined;
+    }, 2000);
   }
 
   private _getDeviceId(): string | null {
@@ -561,8 +585,13 @@ export class MoreInfoDialog extends DirtyStateProviderMixin<
       (deviceId && this.hass.devices[deviceId].entry_type) || "device";
 
     const isDefaultView = this._currView === DEFAULT_VIEW && !this._childView;
+    const isSpecificInitialView =
+      this._initialView !== DEFAULT_VIEW && !this._childView;
     const showCloseIcon =
-      isDefaultView && this._parentEntityIds.length === 0 && !this._childView;
+      (isDefaultView &&
+        this._parentEntityIds.length === 0 &&
+        !this._childView) ||
+      (isSpecificInitialView && !this._childView);
 
     const context = stateObj
       ? getEntityContext(
@@ -653,6 +682,7 @@ export class MoreInfoDialog extends DirtyStateProviderMixin<
               hass: this.hass,
               entry: this._entry,
               params: this._childView.viewParams,
+              yamlMode: this._detailsYamlMode,
             })}
           </div>
         `
@@ -711,10 +741,10 @@ export class MoreInfoDialog extends DirtyStateProviderMixin<
           <p class="main">${title}</p>
         </span>
         ${
-          isDefaultView
+          isDefaultView || isSpecificInitialView
             ? html`
                 ${
-                  this._shouldShowHistory(domain)
+                  isDefaultView && this._shouldShowHistory(domain)
                     ? html`
                         <ha-icon-button
                           slot="headerActionItems"
@@ -730,6 +760,32 @@ export class MoreInfoDialog extends DirtyStateProviderMixin<
                 ${
                   !__DEMO__ && isAdmin
                     ? html`
+                        ${
+                          this._shouldShowRefresh()
+                            ? this._refreshState === "loading"
+                              ? html`<ha-spinner
+                                  size="small"
+                                  slot="headerActionItems"
+                                ></ha-spinner>`
+                              : html`
+                                  <ha-icon-button
+                                    slot="headerActionItems"
+                                    .path=${
+                                      this._refreshState === "success"
+                                        ? mdiCheck
+                                        : this._refreshState === "error"
+                                          ? mdiAlertCircle
+                                          : mdiRefresh
+                                    }
+                                    class=${this._refreshState || ""}
+                                    @click=${this._handleRefresh}
+                                    .label=${this.hass.localize(
+                                      "ui.common.refresh"
+                                    )}
+                                  ></ha-icon-button>
+                                `
+                            : nothing
+                        }
                         <ha-icon-button
                           slot="headerActionItems"
                           .label=${this.hass.localize(
@@ -750,6 +806,21 @@ export class MoreInfoDialog extends DirtyStateProviderMixin<
                             .path=${mdiDotsVertical}
                           ></ha-icon-button>
 
+                          ${
+                            isSpecificInitialView
+                              ? html`
+                                  <ha-dropdown-item value="info">
+                                    <ha-svg-icon
+                                      slot="icon"
+                                      .path=${mdiInformationOutline}
+                                    ></ha-svg-icon>
+                                    ${this.hass.localize(
+                                      "ui.dialogs.more_info_control.info"
+                                    )}
+                                  </ha-dropdown-item>
+                                `
+                              : nothing
+                          }
                           ${
                             this._shouldShowAddEntityTo()
                               ? html`
@@ -885,7 +956,8 @@ export class MoreInfoDialog extends DirtyStateProviderMixin<
                       : nothing
                 }
               `
-            : this._currView === "details"
+            : this._currView === "details" ||
+                this._childView?.viewTag === "ha-more-info-details"
               ? html`
                   <ha-icon-button
                     slot="headerActionItems"
