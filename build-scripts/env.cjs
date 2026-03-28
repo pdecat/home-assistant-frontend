@@ -31,4 +31,7 @@ module.exports = {
   isDevContainer() {
     return isTrue(process.env.DEV_CONTAINER);
   },
+  isSkipCompress() {
+    return isTrue(process.env.SKIP_COMPRESS);
+  },
 };
