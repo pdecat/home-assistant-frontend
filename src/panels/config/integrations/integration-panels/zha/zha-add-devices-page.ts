@@ -12,6 +12,9 @@ import type { HomeAssistant, Route } from "../../../../../types";
 import { documentationUrl } from "../../../../../util/documentation-url";
 import "./zha-device-pairing-status-card";
 
+// How long the page keeps listening after the 254 s join window closes
+const INTERVIEW_GRACE_MS = 5 * 60 * 1000;
+
 @customElement("zha-add-devices-page")
 class ZHAAddDevicesPage extends LitElement {
   @property({ attribute: false }) public hass!: HomeAssistant;
@@ -214,6 +217,13 @@ class ZHAAddDevicesPage extends LitElement {
       clearTimeout(this._addDevicesTimeoutHandle);
     }
     this._wakeLock?.then((wakeLock) => wakeLock.release());
+    // Joining has closed. Keep listening long enough for a device that joined
+    // at the last moment to finish its interview, then end the subscription,
+    // which also ends the backend's debug logging even if the page stays open
+    this._addDevicesTimeoutHandle = setTimeout(
+      () => this._unsubscribe().catch(() => undefined),
+      INTERVIEW_GRACE_MS
+    );
   }
 
   private _subscribe(): void {
@@ -236,7 +246,10 @@ class ZHAAddDevicesPage extends LitElement {
       .then(() =>
         connection.subscribeMessage(
           (message) => this._handleMessage(message),
-          data
+          data,
+          // Resubscribing after a reconnect would send a new permit and open
+          // the network to joins again, for a page nobody may be watching
+          { resubscribe: false }
         )
       );
     this._addDevicesTimeoutHandle = setTimeout(
